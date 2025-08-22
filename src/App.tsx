@@ -611,287 +611,190 @@ const App = () => {
     return () => observer.disconnect();
   }, []);
 
-  // --- HANDLERS PARA DESCARGA INTELIGENTE DE PDF ---
+  // --- DESCARGA PDF MEJORADA ---
   const isDownloadingRef = useRef(false);
 
-  // Función para impresión nativa
-  const handlePrintNative = async () => {
-    if (isDownloadingRef.current) return;
-    isDownloadingRef.current = true;
-
-    const root = wrapperRef.current as HTMLElement | null;
-    if (!root) { isDownloadingRef.current = false; return; }
-
-    try {
-      // Añadir clase para captura
-      document.body.classList.add('capture-pdf');
-
-      // Inyectar estilos de congelamiento
-      const freezeStyles = document.createElement('style');
-      freezeStyles.id = 'print-freeze';
-      freezeStyles.textContent = `
-        * { animation: none !important; transition: none !important; transform: none !important; }
-        .pt-14, .lg\\:pt-6 { padding-top: 0 !important; }
-        .marquee-container { animation: none !important; transform: none !important; }
-      `;
-      document.head.appendChild(freezeStyles);
-
-      // Abrir colapsables
-      const collapsibles = Array.from(root.querySelectorAll<HTMLElement>('[data-collapsible-content="true"]'));
-      const prevMaxHeights = collapsibles.map(el => el.style.maxHeight);
-      collapsibles.forEach(el => {
-        el.style.maxHeight = `${el.scrollHeight}px`;
-      });
-
-      // Forzar reflow
-      document.body.offsetHeight;
-
-      // Ejecutar impresión nativa
-      window.print();
-
-      // Cleanup en afterprint se maneja en el useEffect existente
-      // Restaurar después de un breve delay para dar tiempo a la impresión
-      setTimeout(() => {
-        collapsibles.forEach((el, i) => {
-          el.style.maxHeight = prevMaxHeights[i] || '0px';
-        });
-        document.getElementById('print-freeze')?.remove();
-        document.body.classList.remove('capture-pdf');
-        isDownloadingRef.current = false;
-      }, 1000);
-
-    } catch (error) {
-      console.error('Error en impresión nativa:', error);
-      document.getElementById('print-freeze')?.remove();
-      document.body.classList.remove('capture-pdf');
-      isDownloadingRef.current = false;
-    }
-  };
-
-  // Función mejorada para descarga programática
   const handleDownloadPDF = async () => {
     if (isDownloadingRef.current) return;
     isDownloadingRef.current = true;
 
-    const root = wrapperRef.current as HTMLElement | null;
-    if (!root) { isDownloadingRef.current = false; return; }
+    const root = wrapperRef.current;
+    if (!root) {
+      isDownloadingRef.current = false;
+      return;
+    }
 
     try {
-      // Congelar UI y abrir colapsables
-      document.body.classList.add('capture-pdf');
+      // 1. Preparar UI para captura
+      document.body.classList.add('pdf-capture');
       
+      // 2. Inyectar estilos de congelamiento
       const freezeStyles = document.createElement('style');
-      freezeStyles.id = 'print-freeze';
+      freezeStyles.id = 'pdf-freeze-styles';
       freezeStyles.textContent = `
-        * { animation: none !important; transition: none !important; transform: none !important; }
-        .pt-14, .lg\\:pt-6 { padding-top: 0 !important; }
-        .marquee-container { animation: none !important; transform: none !important; }
+        .pdf-capture * {
+          animation: none !important;
+          transition: none !important;
+          transform: none !important;
+          box-shadow: none !important;
+        }
+        .pdf-capture .marquee-container {
+          animation: none !important;
+          transform: translateX(0) !important;
+        }
+        .pdf-capture .typing-cursor {
+          display: none !important;
+        }
+        .pdf-capture .hover\\:scale-\\[1\\.01\\] {
+          transform: none !important;
+        }
       `;
       document.head.appendChild(freezeStyles);
 
+      // 3. Expandir todos los colapsables
       const collapsibles = Array.from(root.querySelectorAll<HTMLElement>('[data-collapsible-content="true"]'));
-      const prevMax = collapsibles.map(el => el.style.maxHeight);
-      collapsibles.forEach(el => { el.style.maxHeight = `${el.scrollHeight}px`; });
-
-      // Esperar fuentes e imágenes
-      const waitFonts = async () => { 
-        try { 
-          /* @ts-ignore */ 
-          if (document.fonts?.ready) await (document.fonts as any).ready; 
-        } catch {} 
-      };
-      
-      const whenImg = (img: HTMLImageElement) => new Promise<void>(res => {
-        if (img.complete && img.naturalWidth > 0) return res();
-        img.onload = () => res(); 
-        img.onerror = () => res();
+      const originalMaxHeights = collapsibles.map(el => el.style.maxHeight);
+      collapsibles.forEach(el => {
+        el.style.maxHeight = `${el.scrollHeight}px`;
+        el.style.overflow = 'visible';
       });
-      
-      const waitImages = async () => {
-        const imgs = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
-        await Promise.all(imgs.map(whenImg));
-      };
-      
-      await waitFonts(); 
-      await waitImages(); 
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-      // Calcular background real del root
-      const computeRealBg = () => {
-        const rootStyle = getComputedStyle(root);
-        if (rootStyle.backgroundColor && rootStyle.backgroundColor !== 'transparent' && rootStyle.backgroundColor !== 'rgba(0, 0, 0, 0)') {
-          return rootStyle.backgroundColor;
-        }
-        
-        // Si no hay background, usar el del documento según tema
-        if (document.documentElement.classList.contains('dark')) {
-          return '#0b1220';
-        }
-        return '#f9fafb';
-      };
-      
-      const bgColor = computeRealBg();
+      // 4. Esperar a que se estabilice el layout
+      await new Promise(resolve => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTimeout(resolve, 100);
+          });
+        });
+      });
 
-      const totalWidth = Math.max(root.scrollWidth, root.offsetWidth, root.clientWidth);
-      const totalHeight = Math.max(root.scrollHeight, root.offsetHeight, root.clientHeight);
+      // 5. Determinar el color de fondo según el tema
+      const isDarkMode = document.documentElement.classList.contains('dark');
+      const backgroundColor = isDarkMode ? '#0b1220' : '#f9fafb';
 
-      const scale = 2;
+      // 6. Calcular dimensiones completas
+      const totalWidth = Math.max(
+        root.scrollWidth,
+        root.offsetWidth,
+        root.clientWidth
+      );
+      const totalHeight = Math.max(
+        root.scrollHeight,
+        root.offsetHeight,
+        root.clientHeight
+      );
+
+      // 7. Capturar con html2canvas
       const canvas = await html2canvas(root, {
-        backgroundColor: bgColor,
-        scale,
+        backgroundColor,
+        scale: 2,
         useCORS: true,
         allowTaint: false,
-        windowWidth: totalWidth,
-        windowHeight: totalHeight,
         width: totalWidth,
         height: totalHeight,
+        windowWidth: totalWidth,
+        windowHeight: totalHeight,
         scrollX: 0,
-        scrollY: 0
+        scrollY: 0,
+        ignoreElements: (element) => {
+          // Ignorar elementos que no deben aparecer en el PDF
+          return element.classList.contains('no-print') || 
+                 element.tagName === 'SCRIPT' ||
+                 element.tagName === 'STYLE';
+        }
       });
 
-      // Crear PDF con paginación mejorada
+      // 8. Crear PDF con paginación inteligente
       const pdf = new jsPDF('p', 'pt', 'letter');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
 
-      // Generar anclas seguras usando getBoundingClientRect
-      const rootRect = root.getBoundingClientRect();
-      const pickY = (el: Element) => {
-        const rect = (el as HTMLElement).getBoundingClientRect();
-        const yDom = rect.top - rootRect.top;
-        const scaleRatio = canvas.height / totalHeight;
-        return Math.max(0, Math.round(yDom * scaleRatio));
-      };
-      
-      const anchors = new Set<number>([0, canvas.height]);
-      root.querySelectorAll('.cv-section, .cv-break, li, h2, h3').forEach(el => {
-        anchors.add(pickY(el));
-      });
-      const sortedAnchors = Array.from(anchors).sort((a, b) => a - b);
-
-      // Convertir coordenadas
-      const pxToPdf = pageWidth / canvas.width;
-      const stepPx = Math.floor(pageHeight / pxToPdf);
-      const minAdvance = Math.round(120 * (window.devicePixelRatio || 1));
-      const titleGuard = Math.round(96 * (window.devicePixelRatio || 1));
-
-      let y = 0;
-      let pageIndex = 0;
-
-      while (y < canvas.height) {
-        const rawEnd = Math.min(canvas.height, y + stepPx);
-        const candidates = sortedAnchors.filter(v => v >= y + minAdvance && v <= rawEnd);
+      // 9. Encontrar puntos de corte naturales
+      const findBreakPoints = () => {
+        const breakPoints = new Set<number>([0]);
+        const rootRect = root.getBoundingClientRect();
         
-        let end = rawEnd;
-        if (candidates.length) {
-          let chosen = candidates[candidates.length - 1];
-          const prev = sortedAnchors.filter(v => v <= chosen).pop() ?? y;
-          
-          if (chosen - prev < titleGuard && candidates.length > 1) {
-            chosen = candidates[candidates.length - 2];
+        // Buscar elementos que pueden servir como puntos de corte
+        const breakElements = root.querySelectorAll('.cv-section, .cv-break, h2, h3');
+        breakElements.forEach(el => {
+          const rect = el.getBoundingClientRect();
+          const relativeY = rect.top - rootRect.top;
+          const canvasY = Math.round((relativeY / totalHeight) * canvas.height);
+          if (canvasY > 0 && canvasY < canvas.height) {
+            breakPoints.add(canvasY);
           }
-          end = Math.max(chosen, y + minAdvance);
-        }
+        });
+        
+        breakPoints.add(canvas.height);
+        return Array.from(breakPoints).sort((a, b) => a - b);
+      };
 
-        const sliceH = Math.max(1, end - y);
-        const sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = sliceH;
-        const ctx = sliceCanvas.getContext('2d')!;
-        ctx.drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+      const breakPoints = findBreakPoints();
+      const maxSliceHeight = Math.floor((pageHeight / pageWidth) * canvas.width);
+      
+      let currentY = 0;
+      let pageCount = 0;
 
-        const imgData = sliceCanvas.toDataURL('image/png');
-        if (pageIndex > 0) pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, (pageWidth * sliceH) / canvas.width);
-
-        pageIndex++;
-        y = end;
+      while (currentY < canvas.height) {
+        // Encontrar el mejor punto de corte para esta página
+        const idealEnd = currentY + maxSliceHeight;
+        const availableBreaks = breakPoints.filter(bp => 
+          bp > currentY + (maxSliceHeight * 0.3) && bp <= idealEnd
+        );
+        
+        const sliceEnd = availableBreaks.length > 0 
+          ? availableBreaks[availableBreaks.length - 1]
+          : Math.min(idealEnd, canvas.height);
+        
+        const sliceHeight = sliceEnd - currentY;
+        
+        // Crear canvas para esta página
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sliceHeight;
+        
+        const ctx = pageCanvas.getContext('2d')!;
+        ctx.drawImage(
+          canvas,
+          0, currentY, canvas.width, sliceHeight,
+          0, 0, canvas.width, sliceHeight
+        );
+        
+        // Añadir página al PDF
+        if (pageCount > 0) pdf.addPage();
+        
+        const imgData = pageCanvas.toDataURL('image/png', 1.0);
+        const pdfHeight = (pageWidth * sliceHeight) / canvas.width;
+        pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pdfHeight);
+        
+        currentY = sliceEnd;
+        pageCount++;
+        
+        // Prevenir bucles infinitos
+        if (pageCount > 50) break;
       }
 
-      // Descargar con nombre específico
+      // 10. Descargar el PDF
       const filename = 'CV_Areli_Aguilar.pdf';
-      const blob = pdf.output('blob');
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      pdf.save(filename);
 
     } catch (error) {
-      console.error('Error en descarga programática de PDF:', error);
+      console.error('Error al generar PDF:', error);
+      alert('Error al generar el PDF. Por favor, intenta nuevamente.');
     } finally {
-      // Restaurar UI
+      // 11. Restaurar estado original
       const collapsibles = Array.from(root.querySelectorAll<HTMLElement>('[data-collapsible-content="true"]'));
-      collapsibles.forEach(el => { el.style.maxHeight = '0px'; });
-      document.getElementById('print-freeze')?.remove();
-      document.body.classList.remove('capture-pdf');
+      collapsibles.forEach((el, index) => {
+        el.style.maxHeight = originalMaxHeights[index] || '0px';
+        el.style.overflow = 'hidden';
+      });
+      
+      document.getElementById('pdf-freeze-styles')?.remove();
+      document.body.classList.remove('pdf-capture');
       isDownloadingRef.current = false;
     }
   };
 
-  // Función inteligente que decide la mejor ruta
-  const handleSmartDownload = async (e?: React.MouseEvent) => {
-    // Detectores de dispositivo y entorno
-    const ua = navigator.userAgent || '';
-    const isIOS = /iPad|iPhone|iPod/.test(ua) || (/\bMacintosh\b/.test(ua) && 'ontouchend' in document);
-    const isMobileLike = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
-    const isInAppWebView = /; wv\)|WebView|Version\/[\d\.]+.*Chrome\/[\d\.]+ Mobile/i.test(ua);
-    
-    // Verificar si el navegador soporta impresión nativa efectiva
-    const canNative = typeof window.print === 'function' && !isInAppWebView;
-    
-    // Atajos ocultos
-    if (e) {
-      if (e.altKey) {
-        // Alt+Click fuerza programático
-        return handleDownloadPDF();
-      }
-      if (e.ctrlKey || e.metaKey) {
-        // Ctrl/⌘+Click fuerza nativo
-        return handlePrintNative();
-      }
-    }
-    
-    // Lógica de decisión automática
-    if (canNative && !isMobileLike && !isIOS) {
-      // Desktop con navegador completo: usar impresión nativa
-      return handlePrintNative();
-    } else {
-      // Mobile, iOS, WebViews: usar captura programática
-      return handleDownloadPDF();
-    }
-  };
-
-  // --- IMPRESIÓN NATIVA (abre colapsables) ---
-  useEffect(() => {
-    const before = () => {
-      document.body.classList.add('printing');
-      const root = wrapperRef.current;
-      if (!root) return;
-      const nodes = Array.from(root.querySelectorAll('[data-collapsible-content="true"]')) as HTMLElement[];
-      nodes.forEach((el) => { (el as any).dataset.prevMaxHeight = el.style.maxHeight || ''; el.style.maxHeight = `${el.scrollHeight}px`; });
-      // reflow
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const _ = document.body.offsetHeight;
-    };
-    const after = () => {
-      document.body.classList.remove('printing');
-      const root = wrapperRef.current;
-      if (!root) return;
-      const nodes = Array.from(root.querySelectorAll('[data-collapsible-content="true"]')) as HTMLElement[];
-      nodes.forEach((el) => { el.style.maxHeight = (el as any).dataset.prevMaxHeight ?? '0px'; delete (el as any).dataset.prevMaxHeight; });
-    };
-
-    window.addEventListener('beforeprint', before);
-    window.addEventListener('afterprint', after);
-    return () => {
-      window.removeEventListener('beforeprint', before);
-      window.removeEventListener('afterprint', after);
-    };
-  }, []);
 
   return (
     <div
@@ -917,9 +820,6 @@ const App = () => {
       .tooltip-content{background-color:#a8c0d9;color:#0f172a;border:1px solid #93a8c3}
       .dark .tooltip-content{background-color:#475569;color:#fff;border:1px solid #94A3B8}
 
-      @media (min-width:1024px){
-        .printing .app-nav, .capture-pdf .app-nav{position:static!important;height:auto!important}
-      }
       `}</style>
 
       <Navigation
@@ -929,7 +829,7 @@ const App = () => {
         toggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         isDark={isDark}
         toggleDark={toggleDark}
-        onDownloadPDF={handleSmartDownload}
+        onDownloadPDF={handleDownloadPDF}
       />
 
       {/* Carrusel + título móvil */}

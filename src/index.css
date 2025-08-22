@@ -51,42 +51,6 @@ html.dark { color-scheme: dark; }
   border:1px solid #94A3B8 !important;
 }
 
-/* ======== Reglas temporales durante captura programática ========
-.capture-pdf .pt-14,
-.capture-pdf .lg\:pt-6 {
-  padding-top: 0 !important;
-}
-
-.capture-pdf *,
-.capture-pdf *::before,
-.capture-pdf *::after {
-  box-shadow: none !important;
-  text-shadow: none !important;
-  animation: none !important;
-  transition: none !important;
-  transform: none !important;
-}
-
-.capture-pdf .marquee-container,
-.capture-pdf .marquee-container * {
-  animation: none !important;
-  transform: none !important;
-}
-
-/* Captura PDF: estirar el lateral azul (nav .app-nav) solo durante la captura con html2canvas */
-.capture-pdf .app-nav {
-  position: absolute !important;
-  top: 0; left: 0;
-  height: 100% !important;
-  min-height: 100% !important;
-}
-
-/* Asegurar que los colapsables estén completamente abiertos durante captura */
-.capture-pdf [data-collapsible-content="true"] {
-  max-height: none !important;
-  overflow: visible !important;
-}
-
 /* ======== Ajustes globales para impresión/PDF ======== */
 html, body {
   -webkit-print-color-adjust: exact;
@@ -97,5 +61,32 @@ html, body {
   html, body {
     overflow: visible !important;
     height: auto !important;
+  }
+  
+  /* Ocultar elementos que no deben aparecer en impresión */
+  .no-print {
+    display: none !important;
+  }
+  
+  /* Expandir colapsables en impresión */
+  [data-collapsible-content="true"] {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  
+  /* Detener animaciones en impresión */
+  * {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+  
+  .marquee-container {
+    animation: none !important;
+    transform: translateX(0) !important;
+  }
+  
+  .typing-cursor {
+    display: none !important;
   }
 }
